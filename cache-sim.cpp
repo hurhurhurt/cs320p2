@@ -244,13 +244,14 @@ int Cache::saNextLine(int entries){
   auto c = caches.begin();
   int **table = new int*[cacheEntries];
   for (int i = 0; i < cacheEntries; i++){
-    table[i] = new int[cacheEntries];
+    table[i] = new int[rowLength];
     for (int j = 0; j < rowLength; j+= 2){
       table[i][j] = c->second;
       table[i][j+1] = -1;
       c++;
     }
   }
+  
   for (auto c = caches.begin(); c!= caches.end(); c++){
     int address = floor(c->second / SIZE);
     int index = address % cacheEntries;
@@ -316,7 +317,87 @@ int Cache::saNextLine(int entries){
   return hits;    
 }
 
+int Cache::prefetchMiss(int entries){
+  int hits = 0;
+  int cacheEntries = 512 / entries;              // 2^9 entries split into blocks
+  int rowLength = 2 * entries;                   // Rows are [VALID][TIME]....
+  int offset = log2(cacheEntries) + log2(SIZE);  // Offset is calculated the same way.
 
+  auto c = caches.begin();
+  int **table = new int*[cacheEntries];
+  for (int i = 0; i < cacheEntries; i++){
+    table[i] = new int[rowLength];
+    for (int j = 0; j < rowLength; j+= 2){
+      table[i][j] = c->second;
+      table[i][j+1] = -1;
+      c++;
+    }
+  }
+
+  for (auto c = caches.begin(); c!= caches.end(); c++){
+    int address = floor(c->second / SIZE);
+    int index = address % cacheEntries;
+    int tag = c->second >> offset;
+
+    int * cacheRow = table[index];
+
+    int pfIndex = (address + 1) % cacheEntries;
+    int pfTag = (c->second + SIZE) >> offset;
+    int * pfRow = table[pfIndex];
+
+    bool found = false;
+    bool pfFound = false;
+
+    int rowEntries = rowLength / entries;
+    for (int i = 0; i < rowLength; i+= rowEntries){
+      if (cacheRow[i] == tag){
+	hits++;
+	cacheRow[i+1] = distance(caches.begin(), c);
+	found = true;
+	break;
+      }
+    }
+
+    if (!found){
+      for (int i = 0; i < rowLength; i+= rowEntries){
+	if (pfRow[i] == pfTag){
+	  pfRow[i+1] = distance(caches.begin(), c);
+	  pfFound = true;
+	  break;
+	}
+      }
+
+      int replacePage = cacheRow[1];
+      int replaceIndex = 0;
+
+      for (int i = 0; i < rowLength; i+= rowEntries){
+	if (cacheRow[i+1] < replacePage){
+	  replacePage = cacheRow[i+1];
+	  replaceIndex = i;
+	}
+      }
+      
+      cacheRow[replaceIndex] = tag;
+      cacheRow[replaceIndex + 1] = distance(caches.begin(), c);
+    }
+
+    if (!pfFound && !found){
+      int replacePage = pfRow[1];
+      int replaceIndex = 0;
+
+      for (int i = 0; i < rowLength; i+= rowEntries){
+	if (pfRow[i+1] < replacePage){
+	  replacePage = pfRow[i+1];
+	  replaceIndex = i;
+	}
+      }
+
+      pfRow[replaceIndex] = pfTag;
+      pfRow[replaceIndex + 1] = distance(caches.begin(), c);
+    }
+  }
+  return hits;
+}
 int main(int argc, char *argv[]){
   vector<pair<char, int>> inputVector;
   string trace = "traces/";
@@ -373,6 +454,15 @@ int main(int argc, char *argv[]){
   // Q5: Set-Associative Cache, Next Line Prefetching
   for (int i = 0; i < associativity.size(); i++){
     retVal = caches.saNextLine(associativity.at(i));
+    outputFile << retVal << "," << caches.getSize();
+    outputFile << ((i == associativity.size() - 1) ? ";" : "; ");
+  }
+  outputFile << endl;
+
+  // Q6: Prefetch on Miss
+  // Q5: Set-Associative Cache, Next Line Prefetching
+  for (int i = 0; i < associativity.size(); i++){
+    retVal = caches.prefetchMiss(associativity.at(i));
     outputFile << retVal << "," << caches.getSize();
     outputFile << ((i == associativity.size() - 1) ? ";" : "; ");
   }
