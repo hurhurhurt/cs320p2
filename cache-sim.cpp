@@ -7,18 +7,29 @@
 #include <cmath>
 using namespace std;
 
+// Since all cache lines are 32 bytes, I used a macro to save some time
 #define SIZE 32
 
+// For LRU, we need a way to track least recently accessed. Using distance() is a good way to do so
+#define TIMESTAMP distance(caches.begin(), c)
+
+// For set associative caches, to index into the next row
+# define ROWNUM rowLength / entries
+
 int Cache::getSize(){
+  /* Simple getter function for internal cache structure */
   return this->caches.size();
 }
 
 int Cache::dmCache(int entries){
+  
+  /* DIRECT MAPPED CACHE
+   *
+   * Model cache at sizes 1KB, 4KB, 16KB, 32 KB
+   *
+   */
   int hits = 0;
-
-  /* ALLOCATION OF ARRAY */
-  // 2D Array of size entries containing 2 blocks
-  // Blocks are denoted as [VALID | TAG]
+  
   int **table = new int*[entries];
   for (int i = 0; i < entries; i++){
     table[i] = new int[2];
@@ -47,17 +58,18 @@ int Cache::dmCache(int entries){
       table[index][0] = 1;
     }
   }
-
-  /* DEALLOCATING ARRAY */
-  for (int i = 0; i < entries; i++){   // I considered using a smart pointer to avoid
-    delete table[i];                   // allocating/deallocating arrays, but thought was
-  }                                    // more complicated than necessary, since we know size.
-  delete table;
-  
+   
   return hits;
-}
+} 
 
 int Cache::saCache(int associativity){
+
+  /* SET ASSOCIATIVE CACHE
+   *
+   * Model cache with associativities of 2,4,8,16
+   * Also implements LRU replacement strategy
+   *
+   */
   int hits = 0;
   int cacheEntries = 512 / associativity;        // 2^9 entries split into blocks
   int rowLength = 3 * associativity;             // Rows are [VALID][TAG][TIME].... 
@@ -77,13 +89,13 @@ int Cache::saCache(int associativity){
     int tag = c->second >> offset;
     
     int *cacheRow = table[index];
-    bool found = false;                                   // Used for checking if value is there.
-    int rowEntries = rowLength / associativity;           
+    bool found = false;                              
+    int rowNum = rowLength / associativity;           
     
-    for (int i = 0; i < rowLength; i += rowEntries){
+    for (int i = 0; i < rowLength; i += rowNum){
       if (cacheRow[i] == 1){                              // If valid bit is active, 
 	if (cacheRow[i + 1] == tag){                      // tags match,
-	  cacheRow[i + 2] = distance(caches.begin(), c);  // and distances match,
+	  cacheRow[i + 2] = TIMESTAMP;                    // and distances match,
 	  hits++;                                         // we have a hit.
 	  found = true; 
 	  break; 
@@ -93,39 +105,57 @@ int Cache::saCache(int associativity){
 
     if (!found){                                          // If there wasn't a match, we need to 
       bool LRU = false;                                   // add it to the cache and denote as
-      for (int i = 0; i < rowLength; i += rowEntries){    // least recently used.
+      for (int i = 0; i < rowLength; i += rowNum)    {    // least recently used.
 	if (cacheRow[i] == 0){
 	  cacheRow[i] = 1;
 	  cacheRow[i + 1] = tag;
-	  cacheRow[i + 2] = distance(caches.begin(), c);
+	  cacheRow[i + 2] = TIMESTAMP;
 	  LRU = true;
 	  break;
 	}
       }
 
+      // Overwrite the least recently used value
       if (!LRU){
        	int LRUIndex = 0;
 	int minDistance = INT32_MAX;
-	for (int i = 0; i < rowLength; i+= rowEntries){
+	for (int i = 0; i < rowLength; i+= rowNum){
 	  if (cacheRow[i + 2] < minDistance){
 	    minDistance = cacheRow[i + 2];
 	    LRUIndex = i;
 	  }
 	}
 	cacheRow[LRUIndex + 1] = tag;
-	cacheRow[LRUIndex + 2] = distance(caches.begin(), c);
+	cacheRow[LRUIndex + 2] = TIMESTAMP;
       }
     }
   }
-
   return hits;
 }
 
 int Cache::faLRU(){
+
+  /* FULLY ASSOCIATIVE CACHE: LRU REPLACEMENT
+   *
+   * We don't have to actually implement this because we
+   * implemented it above. The only difference is that because
+   * we are fully associative, we only have 1 set with 2^9 entries
+   * since 16KB / 32 line size = 2^9.
+   *
+   */
+  
   return saCache(512);
 }      
-      
+
 int Cache::faHCR(int entries){
+  
+  /* FULLY ASSOCIATIVE CACHE: HOT-COLD REPLACEMENT
+   *
+   * Utilize hot-cold "way" replacement strategy in place of LRU.
+   * Hot cold bits are initialized to "0", representing the fact that
+   * the left child, way 0, is "hot" and the right child is "cold".
+   *
+   */
   int hits = 0;
   
   int *wayTable = new int[entries];        // holds the "ways"
@@ -137,7 +167,7 @@ int Cache::faHCR(int entries){
   }
   
   for (auto c: caches){
-    int tag = c.second >> (int)(log2(SIZE));
+    int tag = c.second >> (int)log2(SIZE); // Organization: [Tag][Offset]... no index in FAcache
     bool valid = false;                    // check if way is active
     for (int i = 0; i < entries; i++){
       if (wayTable[i] == tag){ 
@@ -172,7 +202,7 @@ int Cache::faHCR(int entries){
 	}
       }
 
-      replaceIndex = replaceIndex + 1 - entries;//cold start miss
+      replaceIndex = replaceIndex + 1 - entries; //cold start miss
       wayTable[replaceIndex] = tag;
     }
   }
@@ -180,6 +210,13 @@ int Cache::faHCR(int entries){
 }
 
 int Cache::saNoAlloc(int entries){
+  /* SET ASSOCIATIVE CACHE: NO ALLOCATION ON A WRITE MISS
+   *
+   * Same as set-associative cache above, but the only difference is
+   * that if a store instruction misses, the missing line is written into
+   * memory instead of into the cache
+   *
+   */
   int hits = 0;
   int cacheEntries = 512 / entries;              // 2^9 entries split into blocks
   int rowLength = 3 * entries;                   // Rows are [VALID][TAG][TIME]....
@@ -201,34 +238,36 @@ int Cache::saNoAlloc(int entries){
     for (int i = 0; i < rowLength; i++){
       if (cacheRow[i] == 1 && cacheRow[i+1] == tag){
 	hits++;
-	cacheRow[i+2] = distance(caches.begin(), c);
+	cacheRow[i+2] = TIMESTAMP;
 	found = true;
 	break;
       }
     }
-    if (!found){
-      bool interrupt = false;
+    
+    if (!found){                                  
+      bool interrupt = false;       // We want to write "stores" directly to memory
       if (c->first == 'S') interrupt = true;
-      for (int i = 0; i < rowLength && !interrupt; i+= rowLength/entries){
+      for (int i = 0; i < rowLength && !interrupt; i+= ROWNUM){
 	if (cacheRow[i] == 0){
 	  cacheRow[i] = 1;
 	  cacheRow[i+1] = tag;
-	  cacheRow[i+2] = distance(caches.begin(), c);
+	  cacheRow[i+2] = TIMESTAMP;
 	  interrupt = true;
 	  break;
 	}
       }
-      if (!interrupt){
+      
+      if (!interrupt){              // Proceed normally with LRU if not store instruction
 	int LRUIndex = 0;
 	int min = INT_MAX;
-	for (int i = 0; i < rowLength; i+= rowLength / entries){
+	for (int i = 0; i < rowLength; i+= ROWNUM){
 	  if (cacheRow[i+2] < min){
 	    min = cacheRow[i+2];
 	    LRUIndex = i;
 	  }
 	}
 	cacheRow[LRUIndex + 1] = tag;
-	cacheRow[LRUIndex + 2] = distance(caches.begin(), c);
+	cacheRow[LRUIndex + 2] = TIMESTAMP;
       }
     }
   }
@@ -236,16 +275,25 @@ int Cache::saNoAlloc(int entries){
 }
 
 int Cache::saNextLine(int entries){
+  /* SET-ASSOCIATIVE NEXT LINE PREFETCHING
+   *
+   * With each cache access, the next cache line is also brought in.
+   * Prefetched blocks will update the LRU order, and will consequently be the
+   * most recently used block in the set
+   *
+   */
+  
   int hits = 0;
   int cacheEntries = 512 / entries;              // 2^9 entries split into blocks
   int rowLength = 2 * entries;                   // Rows are [VALID][TIME]....
   int offset = log2(cacheEntries) + log2(SIZE);  // Offset is calculated the same way.
 
-  auto c = caches.begin();
   int **table = new int*[cacheEntries];
+
+  auto c = caches.begin();
   for (int i = 0; i < cacheEntries; i++){
     table[i] = new int[rowLength];
-    for (int j = 0; j < rowLength; j+= 2){
+    for (int j = 0; j < rowLength; j+= ROWNUM){
       table[i][j] = c->second;
       table[i][j+1] = -1;
       c++;
@@ -266,19 +314,18 @@ int Cache::saNextLine(int entries){
     bool found = false;
     bool pfFound = false;
 
-    int rowEntries = rowLength / entries;
-    for (int i = 0; i < rowLength; i+= rowEntries){
+    for (int i = 0; i < rowLength; i+= ROWNUM){
       if (cacheRow[i] == tag){
 	hits++;
-	cacheRow[i+1] = distance(caches.begin(), c);
+	cacheRow[i+1] = TIMESTAMP;
 	found = true;
 	break;
       }
     }
 
-    for (int i = 0; i < rowLength; i+=rowEntries){
+    for (int i = 0; i < rowLength; i+= ROWNUM){
       if (pfRow[i] == tag){
-	pfRow[i+1] = distance(caches.begin(), c);
+	pfRow[i+1] = TIMESTAMP;
 	pfFound = true;
 	break;
       }
@@ -288,7 +335,7 @@ int Cache::saNextLine(int entries){
       int replacePage = cacheRow[1];
       int replaceIndex = 0;
 
-      for (int i = 0; i < rowLength; i+= rowEntries){
+      for (int i = 0; i < rowLength; i+= ROWNUM){
 	if (cacheRow[i+1] < replacePage){
 	  replacePage = cacheRow[i+1];
 	  replaceIndex = i;
@@ -296,14 +343,14 @@ int Cache::saNextLine(int entries){
       }
 
       cacheRow[replaceIndex] = tag;
-      cacheRow[replaceIndex + 1] = distance(caches.begin(), c);
+      cacheRow[replaceIndex + 1] = TIMESTAMP;
     }
     
     if (!pfFound){
       int replacePage = pfRow[1];
       int replaceIndex = 0;
 
-      for (int i = 0; i < rowLength; i+= rowEntries){
+      for (int i = 0; i < rowLength; i+= ROWNUM){
 	if (pfRow[i+1] < replacePage){
 	  replacePage = pfRow[i+1];
 	  replaceIndex = i;
@@ -311,7 +358,7 @@ int Cache::saNextLine(int entries){
       }
 
       pfRow[replaceIndex] = pfTag;
-      pfRow[replaceIndex+1] = distance(caches.begin(), c);
+      pfRow[replaceIndex+1] = TIMESTAMP;
     }
   }
   return hits;    
@@ -348,20 +395,19 @@ int Cache::prefetchMiss(int entries){
     bool found = false;
     bool pfFound = false;
 
-    int rowEntries = rowLength / entries;
-    for (int i = 0; i < rowLength; i+= rowEntries){
+    for (int i = 0; i < rowLength; i+= ROWNUM){
       if (cacheRow[i] == tag){
 	hits++;
-	cacheRow[i+1] = distance(caches.begin(), c);
+	cacheRow[i+1] = TIMESTAMP;
 	found = true;
 	break;
       }
     }
 
     if (!found){
-      for (int i = 0; i < rowLength; i+= rowEntries){
+      for (int i = 0; i < rowLength; i+= ROWNUM){
 	if (pfRow[i] == pfTag){
-	  pfRow[i+1] = distance(caches.begin(), c);
+	  pfRow[i+1] = TIMESTAMP;
 	  pfFound = true;
 	  break;
 	}
@@ -370,7 +416,7 @@ int Cache::prefetchMiss(int entries){
       int replacePage = cacheRow[1];
       int replaceIndex = 0;
 
-      for (int i = 0; i < rowLength; i+= rowEntries){
+      for (int i = 0; i < rowLength; i+= ROWNUM){
 	if (cacheRow[i+1] < replacePage){
 	  replacePage = cacheRow[i+1];
 	  replaceIndex = i;
@@ -378,14 +424,14 @@ int Cache::prefetchMiss(int entries){
       }
       
       cacheRow[replaceIndex] = tag;
-      cacheRow[replaceIndex + 1] = distance(caches.begin(), c);
+      cacheRow[replaceIndex + 1] = TIMESTAMP;
     }
 
     if (!pfFound && !found){
       int replacePage = pfRow[1];
       int replaceIndex = 0;
 
-      for (int i = 0; i < rowLength; i+= rowEntries){
+      for (int i = 0; i < rowLength; i+= ROWNUM){
 	if (pfRow[i+1] < replacePage){
 	  replacePage = pfRow[i+1];
 	  replaceIndex = i;
@@ -393,7 +439,7 @@ int Cache::prefetchMiss(int entries){
       }
 
       pfRow[replaceIndex] = pfTag;
-      pfRow[replaceIndex + 1] = distance(caches.begin(), c);
+      pfRow[replaceIndex + 1] = TIMESTAMP;
     }
   }
   return hits;
@@ -460,7 +506,6 @@ int main(int argc, char *argv[]){
   outputFile << endl;
 
   // Q6: Prefetch on Miss
-  // Q5: Set-Associative Cache, Next Line Prefetching
   for (int i = 0; i < associativity.size(); i++){
     retVal = caches.prefetchMiss(associativity.at(i));
     outputFile << retVal << "," << caches.getSize();
