@@ -15,7 +15,7 @@ class Cache{
   int dmCache(int);
   int saCache(int);
   int faLRU();
-  int faHCR();
+  int faHCR(int);
   int saNoAlloc(int);
   int saNextLine(int);
   int prefetchMiss(int);

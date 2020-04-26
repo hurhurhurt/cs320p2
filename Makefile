@@ -1,4 +1,4 @@
-all: caches
+all: cache-sim
 
 run:
 	./cache-sim
