@@ -11,7 +11,9 @@ class Cache{
   Cache(std::vector<std::pair<char,int>> caches){
     this->caches = caches;
   }
-  int getSize();
+  int getSize(){
+    return this->caches.size();
+  }
   int dmCache(int);
   int saCache(int);
   int faLRU();

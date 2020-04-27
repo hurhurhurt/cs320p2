@@ -16,11 +16,6 @@ using namespace std;
 // For set associative caches, to index into the next row
 # define ROWNUM rowLength / entries
 
-int Cache::getSize(){
-  /* Simple getter function for internal cache structure */
-  return this->caches.size();
-}
-
 int Cache::dmCache(int entries){
   
   /* DIRECT MAPPED CACHE
