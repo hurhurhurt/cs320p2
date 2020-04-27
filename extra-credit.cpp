@@ -36,10 +36,10 @@ int Cache::LFU(int entries){
   vector<int> tags;
   vector<int> frequencies;
 
-  for (auto c = caches.begin(); c!= caches.end(); c++){
-    int address = floor(c->second / SIZE);
+  for (auto c : caches){
+    int address = floor(c.second / SIZE);
     int index = address % cacheEntries;
-    int tag = c->second >> offset;
+    int tag = c.second >> offset;
 
     bool found = false;
     for (int i = 0; i < entries; i++){
