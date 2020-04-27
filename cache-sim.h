@@ -19,5 +19,6 @@ class Cache{
   int saNoAlloc(int);
   int saNextLine(int);
   int prefetchMiss(int);
+  int LFU(int);
 };
 #endif
